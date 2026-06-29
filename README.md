@@ -15,7 +15,14 @@ python3 -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-Store your CERN Indico bearer token outside the repository in `~/.indico.sh`:
+Sign in to the
+[CERN Indico API tokens page](https://indico.cern.ch/user/tokens/) and select
+**Create new token**. Give the token a descriptive name and grant
+**Everything (only GET)** access, since this pipeline only reads meeting data
+and attachments. Copy the token when it is displayed; Indico will not show it
+again.
+
+Store the bearer token outside the repository in `~/.indico.sh`:
 
 ```sh
 export INDICO_TOKEN="indp_..."
