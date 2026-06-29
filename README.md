@@ -100,6 +100,35 @@ Codex automation that performs the final editorial rewrite is local application
 state, so it does not travel with Git. On another machine, schedule the command
 above and point the writing agent of your choice at the newest run directory.
 
+## Web Portal Dashboard
+
+The project includes an interactive, locally-hosted web portal to monitor, access, and join your primary CERN Indico meetings.
+
+### Features
+- **Scalable Category Management**: Add new categories via their Indico URL or ID, or delete them directly from the web interface.
+- **Meeting List**: Displays the last three meetings (including upcoming ones in the coming week) for each category.
+- **Auto-extracted Zoom Links**: Displays a direct Zoom button for any meeting that has videoconference rooms configured.
+- **Agenda contributions**: Lists all talks and presenters scheduled for each meeting with direct links.
+- **Custom filters**: Set dynamic "Require in Title" or "Exclude in Title" rules per category to filter meeting names.
+- **Smart caching**: Fetches are cached in memory for 8 hours to load instantly and prevent rate-limiting.
+
+### Running the Web Portal
+
+To start the local web server:
+
+```sh
+python3 server.py
+```
+
+Once started, navigate to the dashboard in your web browser:
+[http://localhost:5050](http://localhost:5050)
+
+To run the web portal persistently in the background:
+
+```sh
+nohup .venv/bin/python3 server.py > /dev/null 2>&1 &
+```
+
 ## Notes
 
 - Protected Indico material requires `INDICO_TOKEN`.
