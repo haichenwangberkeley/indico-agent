@@ -1,0 +1,8 @@
+{
+  "name": "Public result approval meeting",
+  "category_ids": ["2635"],
+  "lookback_days": 7,
+  "lookahead_days": 1,
+  "limit": 20,
+  "match": ""
+}
