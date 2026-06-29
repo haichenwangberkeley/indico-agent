@@ -388,9 +388,9 @@ header {
   font-size: 0.95rem;
   font-weight: 600;
   color: #ffffff;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  overflow: hidden;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .meeting-time-place {
