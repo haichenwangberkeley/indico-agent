@@ -125,6 +125,7 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
           <button class="btn btn-primary btn-save-filters" data-category-id="${category.id}">Apply Filters</button>
         </div>
+      `;
 
       // Meetings List Container
       html += '<div class="meetings-list">';
