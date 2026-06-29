@@ -246,13 +246,14 @@ header {
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
   border-radius: var(--card-radius);
-  padding: 1.75rem;
+  padding: 1.75rem 1.75rem 1.75rem 3.25rem; /* Leave room for drag handle on left */
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   transition: var(--transition);
+  position: relative;
 }
 
 .category-card:hover {
@@ -766,4 +767,32 @@ footer {
   align-self: flex-end;
   height: 32px;
   margin-top: 0.25rem;
+}
+
+/* Drag and Drop Styling */
+.drag-handle {
+  position: absolute;
+  top: 1.6rem;
+  left: 1.1rem;
+  color: var(--text-muted);
+  cursor: grab;
+  padding: 0.2rem;
+  transition: var(--transition);
+  z-index: 10;
+}
+
+.drag-handle:hover {
+  color: var(--text-primary);
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.category-card.dragging {
+  opacity: 0.4;
+  transform: scale(0.98);
+  border-style: dashed;
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.15);
 }

@@ -1,6 +1,8 @@
 document.addEventListener('DOMContentLoaded', () => {
   const loadingEl = document.getElementById('loading');
   const errorEl = document.getElementById('error');
+  
+  let draggedCard = null;
   const errorMsgEl = document.getElementById('error-msg');
   const contentEl = document.getElementById('portal-content');
   const lastUpdatedEl = document.getElementById('last-updated');
@@ -77,6 +79,8 @@ document.addEventListener('DOMContentLoaded', () => {
     data.categories.forEach(category => {
       const card = document.createElement('section');
       card.className = 'category-card';
+      card.setAttribute('data-category-id', category.id);
+      card.setAttribute('draggable', 'true');
       
       const meetingsCount = category.meetings ? category.meetings.length : 0;
       
@@ -84,6 +88,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Category Header HTML
       let html = `
+        <div class="drag-handle" title="Drag to reorder">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+            <circle cx="9" cy="5" r="2.25"/>
+            <circle cx="9" cy="12" r="2.25"/>
+            <circle cx="9" cy="19" r="2.25"/>
+            <circle cx="15" cy="5" r="2.25"/>
+            <circle cx="15" cy="12" r="2.25"/>
+            <circle cx="15" cy="19" r="2.25"/>
+          </svg>
+        </div>
         <button class="delete-category-btn" data-category-id="${category.id}" title="Remove Category">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -231,6 +245,46 @@ document.addEventListener('DOMContentLoaded', () => {
       card.innerHTML = html;
       contentEl.appendChild(card);
 
+      // Drag and Drop listeners
+      let dragStartOnHandle = false;
+      const dragHandle = card.querySelector('.drag-handle');
+      
+      dragHandle.addEventListener('mousedown', () => {
+        dragStartOnHandle = true;
+      });
+      dragHandle.addEventListener('mouseup', () => {
+        dragStartOnHandle = false;
+      });
+
+      card.addEventListener('dragstart', (e) => {
+        if (!dragStartOnHandle) {
+          e.preventDefault();
+          return;
+        }
+        draggedCard = card;
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+      });
+
+      card.addEventListener('dragend', async () => {
+        card.classList.remove('dragging');
+        draggedCard = null;
+        dragStartOnHandle = false;
+        await saveNewOrder();
+      });
+
+      card.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const targetCard = e.currentTarget;
+        if (targetCard !== draggedCard) {
+          const rect = targetCard.getBoundingClientRect();
+          const next = (e.clientY - rect.top) / (rect.bottom - rect.top) > 0.5;
+          const container = document.getElementById('portal-content');
+          container.insertBefore(draggedCard, next ? targetCard.nextSibling : targetCard);
+        }
+      });
+
       // Attach listener to delete button
       card.querySelector('.delete-category-btn').addEventListener('click', async (e) => {
         const btn = e.currentTarget;
@@ -376,6 +430,25 @@ document.addEventListener('DOMContentLoaded', () => {
       addCategoryBtn.innerHTML = originalBtnHtml;
     }
   });
+
+  async function saveNewOrder() {
+    const cards = document.querySelectorAll('.category-card');
+    const order = Array.from(cards).map(card => card.getAttribute('data-category-id'));
+    
+    try {
+      const res = await fetch('/api/categories/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order })
+      });
+      if (!res.ok) {
+        throw new Error('Failed to save category order');
+      }
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
+    }
+  }
 
   // Initial load
   fetchMeetings();

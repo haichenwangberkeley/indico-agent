@@ -388,6 +388,40 @@ def api_update_category_filters(cat_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/categories/reorder", methods=["POST"])
+def api_reorder_categories():
+    global CACHE, CACHE_TIME
+    try:
+        body = request.get_json() or {}
+        new_order = body.get("order", [])
+        if not new_order:
+            return jsonify({"error": "New order list of IDs is required"}), 400
+            
+        config_path = Path("config/portal_categories.json")
+        if not config_path.exists():
+            return jsonify({"error": "Config not found"}), 404
+            
+        categories = json.loads(config_path.read_text(encoding="utf-8"))
+        
+        # Reorder based on ID list
+        cat_map = {c.get("id"): c for c in categories}
+        ordered_cats = []
+        for cat_id in new_order:
+            if cat_id in cat_map:
+                ordered_cats.append(cat_map[cat_id])
+                del cat_map[cat_id]
+        ordered_cats.extend(cat_map.values())
+        
+        save_categories(ordered_cats)
+        
+        # Clear cache
+        CACHE = {}
+        CACHE_TIME = 0
+        
+        return jsonify({"success": True, "categories": ordered_cats})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/")
 def index():
     return send_from_directory("static", "index.html")

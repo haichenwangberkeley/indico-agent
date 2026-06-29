@@ -22,5 +22,9 @@
     "require": "ttZ",
     "exclude": "",
     "match": "ttZ"
+  },
+  {
+    "id": "2636",
+    "name": "ATLAS Weekly"
   }
 ]
