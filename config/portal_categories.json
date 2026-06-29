@@ -1,5 +1,9 @@
 [
   {
+    "id": "2636",
+    "name": "ATLAS Weekly"
+  },
+  {
     "id": "588",
     "name": "Berkeley Lab",
     "match": "LBL Weekly meeting"
@@ -9,12 +13,12 @@
     "name": "Photons Plenaries"
   },
   {
-    "id": "20396",
-    "name": "Plenary Meetings"
-  },
-  {
     "id": "18927",
     "name": "tHbb Boosted CP"
+  },
+  {
+    "id": "20396",
+    "name": "Plenary Meetings"
   },
   {
     "id": "12104",
@@ -22,9 +26,5 @@
     "require": "ttZ",
     "exclude": "",
     "match": "ttZ"
-  },
-  {
-    "id": "2636",
-    "name": "ATLAS Weekly"
   }
 ]
