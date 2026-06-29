@@ -18,6 +18,9 @@
   },
   {
     "id": "12104",
-    "name": "Top quarks + X"
+    "name": "Top quarks + X",
+    "require": "ttZ",
+    "exclude": "",
+    "match": "ttZ"
   }
 ]
