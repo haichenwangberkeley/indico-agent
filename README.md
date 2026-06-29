@@ -1,24 +1,26 @@
 # ⚡ Quick Start: Launch the Indico Portal
 
-Run these commands in your terminal to start the local web portal:
+Run these commands to set up the portal and get it running:
 
-```sh
-# 1. Setup the environment and dependencies
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -r requirements.txt
+1. **Request a CERN Indico API token**:
+   Go to the [CERN Indico API tokens page](https://indico.cern.ch/user/tokens/). Select **Create new token**, name it, and grant **Everything (only GET)** access. Copy the token.
 
-# 2. Start the local server
-python3 server.py
-```
+2. **Save the token** to `~/.indico.sh` in your terminal:
+   ```sh
+   echo 'export INDICO_TOKEN="your_token_here"' > ~/.indico.sh
+   chmod 600 ~/.indico.sh
+   ```
 
-Now open the portal in your browser:
-**[http://localhost:5050](http://localhost:5050)** (or run `open http://localhost:5050` on macOS).
+3. **Set up the environment and start the server**:
+   ```sh
+   python3 -m venv .venv
+   . .venv/bin/activate
+   pip install -r requirements.txt
+   python3 server.py
+   ```
 
-*(Optional) To access protected CERN Indico meetings, save your token in `~/.indico.sh`:*
-```sh
-export INDICO_TOKEN="your_token_here"
-```
+4. **Open the portal** in your browser:
+   **[http://localhost:5050](http://localhost:5050)** (or run `open http://localhost:5050` on macOS).
 
 ---
 
