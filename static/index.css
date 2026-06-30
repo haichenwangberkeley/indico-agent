@@ -846,3 +846,8 @@ footer {
 .summary-content-box em {
   color: #a5b4fc;
 }
+
+/* Summary Details Chevron Rotation */
+.summary-details[open] .summary-chevron {
+  transform: rotate(90deg);
+}

@@ -298,8 +298,15 @@ document.addEventListener('DOMContentLoaded', () => {
                   </div>
 
                   <div class="summary-section hidden" data-meeting-id="${meeting.id}">
-                    <span class="section-label">AI Executive Summary</span>
-                    <div class="summary-content-box"></div>
+                    <details class="summary-details" open>
+                      <summary class="section-label" style="cursor: pointer; display: flex; align-items: center; gap: 0.4rem; user-select: none; outline: none;">
+                        <svg class="summary-chevron" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition: transform 0.2s;">
+                          <polyline points="9 18 15 12 9 6"></polyline>
+                        </svg>
+                        AI Executive Summary
+                      </summary>
+                      <div class="summary-content-box" style="margin-top: 0.5rem;"></div>
+                    </details>
                   </div>
 
                   <div class="contributions-section">
@@ -444,9 +451,25 @@ document.addEventListener('DOMContentLoaded', () => {
           const meetingId = btn.getAttribute('data-meeting-id');
           const summarySection = card.querySelector(`.summary-section[data-meeting-id="${meetingId}"]`);
           const summaryContent = summarySection.querySelector('.summary-content-box');
+          const summaryDetails = summarySection.querySelector('.summary-details');
           
+          // Helper to adjust parent accordion height
+          const updateParentHeight = () => {
+            const meetingContentEl = btn.closest('.meeting-content');
+            if (meetingContentEl) {
+              meetingContentEl.style.maxHeight = meetingContentEl.scrollHeight + 'px';
+            }
+          };
+
+          // Attach toggle listener once
+          if (summaryDetails && !summaryDetails.dataset.listenerAttached) {
+            summaryDetails.dataset.listenerAttached = 'true';
+            summaryDetails.addEventListener('toggle', updateParentHeight);
+          }
+
           summarySection.classList.remove('hidden');
           summaryContent.innerHTML = '<span class="spinner" style="width: 14px; height: 14px; border-width: 2.25px; margin: 0 0.5rem 0 0; display: inline-block; vertical-align: middle;"></span> Downloading slides and generating summary...';
+          updateParentHeight();
           
           btn.disabled = true;
           const originalText = btn.innerHTML;
@@ -464,6 +487,7 @@ document.addEventListener('DOMContentLoaded', () => {
           } finally {
             btn.disabled = false;
             btn.innerHTML = originalText;
+            updateParentHeight();
           }
         });
       });
