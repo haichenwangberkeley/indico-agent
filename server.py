@@ -8,10 +8,15 @@ import urllib.request
 import urllib.parse
 import threading
 import concurrent.futures
+import tempfile
+import requests
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, jsonify, send_from_directory, request
+
+# Import functions from our briefing script
+from scripts.indico_briefing import fetch_event_materials, download_material, extract_text
 
 app = Flask(__name__)
 
@@ -35,6 +40,22 @@ def get_indico_token():
                 return m.group(1)
         except Exception as e:
             print(f"Error reading ~/.indico.sh: {e}")
+    return None
+
+def get_cborg_api_key():
+    token = os.environ.get("CBORG_API_KEY")
+    if token:
+        return token
+    # Try ~/.API.sh
+    sh_file = Path.home() / ".API.sh"
+    if sh_file.exists():
+        try:
+            content = sh_file.read_text(encoding="utf-8")
+            m = re.search(r'export CBORG_API_KEY=["\']?([^"\'\s]+)["\']?', content)
+            if m:
+                return m.group(1)
+        except Exception as e:
+            print(f"Error reading ~/.API.sh: {e}")
     return None
 
 def request_bytes(url, token=None):
@@ -419,6 +440,87 @@ def api_reorder_categories():
         CACHE_TIME = 0
         
         return jsonify({"success": True, "categories": ordered_cats})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/meetings/<meeting_id>/summary", methods=["POST"])
+def api_meeting_summary(meeting_id):
+    try:
+        # 1. Check for cached summary
+        summary_dir = Path("config/summaries")
+        summary_path = summary_dir / f"summary_{meeting_id}.txt"
+        if summary_path.exists():
+            return jsonify({"summary": summary_path.read_text(encoding="utf-8")})
+            
+        # 2. Check for CBorg API key
+        cborg_key = get_cborg_api_key()
+        if not cborg_key:
+            return jsonify({"error": "CBorg API key not configured. Please set export CBorg API key in ~/.API.sh"}), 500
+            
+        # 3. Retrieve Indico Token
+        indico_token = get_indico_token()
+        
+        # 4. Fetch meeting materials
+        materials = fetch_event_materials(meeting_id, indico_token)
+        
+        # 5. Keep only presentation slides (.pdf, .pptx)
+        slide_materials = [m for m in materials if m.url.lower().endswith((".pdf", ".pptx"))]
+        if not slide_materials:
+            return jsonify({"error": "No presentation slides (PDF/PPTX) found for this meeting."}), 400
+            
+        # 6. Download slides and extract text
+        extracted_texts = {}
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            for mat in slide_materials:
+                try:
+                    file_path = download_material(mat, tmp_path, indico_token)
+                    text = extract_text(file_path)
+                    if text.strip():
+                        extracted_texts[mat.title] = text.strip()
+                except Exception as e:
+                    print(f"Error processing material {mat.title}: {e}")
+                    
+        if not extracted_texts:
+            return jsonify({"error": "Failed to extract readable text from any presentation slides."}), 400
+            
+        # 7. Build LLM prompt
+        prompt = "Below is the extracted text from the presentation slides of a meeting. Please generate a concise, structured executive summary highlighting key results, plots, decisions, and action items discussed in this meeting.\n\n"
+        for title, text in extracted_texts.items():
+            # Limit each presentation content to 30,000 characters
+            prompt += f"### Document: {title}\n{text[:30000]}\n\n"
+            
+        payload = {
+            "model": "lbl/cborg-chat",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a professional assistant summarizing physics and research meeting slides."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        }
+        
+        headers = {
+            "Authorization": f"Bearer {cborg_key}",
+            "Content-Type": "application/json"
+        }
+        
+        response = requests.post("https://api.cborg.lbl.gov/v1/chat/completions", json=payload, headers=headers, timeout=180)
+        if response.status_code != 200:
+            return jsonify({"error": f"CBorg API error (HTTP {response.status_code}): {response.text[:300]}"}), 500
+            
+        resp_data = response.json()
+        summary = resp_data["choices"][0]["message"]["content"]
+        
+        # 8. Save cache
+        summary_dir.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(summary, encoding="utf-8")
+        
+        return jsonify({"summary": summary})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

@@ -8,6 +8,82 @@ document.addEventListener('DOMContentLoaded', () => {
   const lastUpdatedEl = document.getElementById('last-updated');
   const retryBtn = document.getElementById('retry-btn');
 
+  function parseSimpleMarkdown(text) {
+    if (!text) return '';
+    let html = text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+      
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    
+    html = html.replace(/^### (.*?)$/gm, '<h4 style="color:#ffffff; margin: 0.75rem 0 0.3rem 0; font-size:0.9rem;">$1</h4>');
+    html = html.replace(/^## (.*?)$/gm, '<h3 style="color:#ffffff; margin: 1rem 0 0.4rem 0; font-size:0.95rem;">$1</h3>');
+    html = html.replace(/^# (.*?)$/gm, '<h2 style="color:#ffffff; margin: 1.25rem 0 0.5rem 0; font-size:1rem;">$1</h2>');
+    
+    html = html.replace(/^\s*-\s+(.*?)$/gm, '&bull; $1<br>');
+    html = html.replace(/^\s*\*\s+(.*?)$/gm, '&bull; $1<br>');
+    html = html.replace(/^\s*(\d+)\.\s+(.*?)$/gm, '$1. $2<br>');
+    
+    // Parse Markdown tables by splitting lines
+    const lines = html.split('\n');
+    let inTable = false;
+    let tableHtml = '';
+    const outputLines = [];
+    
+    for (let line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+        if (!inTable) {
+          inTable = true;
+          tableHtml = '<table style="width:100%; border-collapse:collapse; margin:1rem 0; font-size:0.8rem; border:1px solid rgba(139,92,246,0.15);">';
+        }
+        
+        // Split cells
+        const cells = trimmed.split('|').slice(1, -1).map(c => c.trim());
+        
+        // Skip divider rows like | :--- | :--- |
+        if (cells.every(c => /^:?-+:?$/.test(c))) {
+          continue;
+        }
+        
+        tableHtml += '<tr style="border-bottom:1px solid rgba(139,92,246,0.1);">';
+        const isHeader = !tableHtml.includes('</th>') && !tableHtml.includes('</td>');
+        
+        for (let cell of cells) {
+          const tag = isHeader ? 'th' : 'td';
+          const padding = '0.5rem 0.75rem';
+          const style = `padding:${padding}; text-align:left; font-weight:${isHeader ? '600' : 'normal'}; color:${isHeader ? '#ffffff' : 'inherit'}; background:${isHeader ? 'rgba(139,92,246,0.06)' : 'transparent'};`;
+          tableHtml += `<${tag} style="${style}">${cell}</${tag}>`;
+        }
+        tableHtml += '</tr>';
+      } else {
+        if (inTable) {
+          inTable = false;
+          tableHtml += '</table>';
+          outputLines.push(tableHtml);
+          tableHtml = '';
+        }
+        outputLines.push(line);
+      }
+    }
+    
+    if (inTable) {
+      tableHtml += '</table>';
+      outputLines.push(tableHtml);
+    }
+    
+    html = outputLines.join('\n');
+    
+    html = html.replace(/\n\n/g, '</p><p>');
+    html = html.replace(/\n/g, '<br>');
+    
+    return `<p>${html}</p>`;
+  }
+
   // Month names for badges
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -213,6 +289,17 @@ document.addEventListener('DOMContentLoaded', () => {
                       </svg>
                       Open Event Page
                     </a>
+                    <button class="btn btn-summary-ai" data-meeting-id="${meeting.id}">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m11.314 11.314l.707.707M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10z"/>
+                      </svg>
+                      Generate AI Summary
+                    </button>
+                  </div>
+
+                  <div class="summary-section hidden" data-meeting-id="${meeting.id}">
+                    <span class="section-label">AI Executive Summary</span>
+                    <div class="summary-content-box"></div>
                   </div>
 
                   <div class="contributions-section">
@@ -349,6 +436,36 @@ document.addEventListener('DOMContentLoaded', () => {
           saveFiltersBtn.disabled = false;
           saveFiltersBtn.innerHTML = originalBtnHtml;
         }
+      });
+
+      // Attach listener to AI Summary buttons inside this card
+      card.querySelectorAll('.btn-summary-ai').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const meetingId = btn.getAttribute('data-meeting-id');
+          const summarySection = card.querySelector(`.summary-section[data-meeting-id="${meetingId}"]`);
+          const summaryContent = summarySection.querySelector('.summary-content-box');
+          
+          summarySection.classList.remove('hidden');
+          summaryContent.innerHTML = '<span class="spinner" style="width: 14px; height: 14px; border-width: 2.25px; margin: 0 0.5rem 0 0; display: inline-block; vertical-align: middle;"></span> Downloading slides and generating summary...';
+          
+          btn.disabled = true;
+          const originalText = btn.innerHTML;
+          btn.innerHTML = 'Generating...';
+          
+          try {
+            const res = await fetch(`/api/meetings/${meetingId}/summary`, { method: 'POST' });
+            const resData = await res.json();
+            if (!res.ok) {
+              throw new Error(resData.error || 'Failed to generate summary');
+            }
+            summaryContent.innerHTML = parseSimpleMarkdown(resData.summary);
+          } catch (err) {
+            summaryContent.innerHTML = `<span style="color: var(--error-color);">Error: ${err.message}</span>`;
+          } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+          }
+        });
       });
     });
 
