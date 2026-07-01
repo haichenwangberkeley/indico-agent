@@ -10,6 +10,11 @@ import threading
 import concurrent.futures
 import tempfile
 import requests
+import pypdfium2 as pdfium
+import io
+import base64
+import shutil
+import subprocess
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
@@ -443,19 +448,61 @@ def api_reorder_categories():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+def pdf_to_images_base64(pdf_path, max_pages=12):
+    images_b64 = []
+    try:
+        doc = pdfium.PdfDocument(str(pdf_path))
+        for i in range(min(len(doc), max_pages)):
+            page = doc[i]
+            bitmap = page.render(scale=2.0)
+            pil_img = bitmap.to_pil()
+            
+            buffered = io.BytesIO()
+            pil_img.save(buffered, format="JPEG", quality=80)
+            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+            images_b64.append(f"data:image/jpeg;base64,{img_str}")
+    except Exception as e:
+        print(f"Error rendering PDF pages to image: {e}")
+    return images_b64
+
+def extract_codex_response(stdout_text):
+    lines = stdout_text.strip().splitlines()
+    for idx, line in enumerate(lines):
+        if line.strip() == "tokens used":
+            if idx + 2 < len(lines):
+                return "\n".join(lines[idx + 2:])
+    for idx, line in enumerate(lines):
+        if line.strip() == "codex":
+            sub_lines = []
+            for sub_line in lines[idx + 1:]:
+                if sub_line.strip() == "tokens used":
+                    break
+                sub_lines.append(sub_line)
+            return "\n".join(sub_lines)
+    return stdout_text
+
 @app.route("/api/meetings/<meeting_id>/summary", methods=["POST"])
 def api_meeting_summary(meeting_id):
     try:
-        # 1. Check for cached summary
+        # Get request parameters
+        body = request.get_json() or {}
+        agent = body.get("agent", "cborg_api")
+        method = body.get("method", "text")
+        model = body.get("model", "lbl/cborg-chat")
+
+        # Sanitize parameters for cache filename
+        safe_model = model.replace("/", "_").replace(":", "_")
         summary_dir = Path("config/summaries")
-        summary_path = summary_dir / f"summary_{meeting_id}.txt"
+        summary_path = summary_dir / f"summary_{meeting_id}_{agent}_{method}_{safe_model}.txt"
+
+        # 1. Check for cached summary
         if summary_path.exists():
             return jsonify({"summary": summary_path.read_text(encoding="utf-8")})
             
-        # 2. Check for CBorg API key
+        # 2. Check for CBorg API key (needed if using cborg_api or codex_cborg)
         cborg_key = get_cborg_api_key()
-        if not cborg_key:
-            return jsonify({"error": "CBorg API key not configured. Please set export CBorg API key in ~/.API.sh"}), 500
+        if (agent == "cborg_api" or agent == "codex_cborg") and not cborg_key:
+            return jsonify({"error": "CBorg API key not configured. Please set export CBORG_API_KEY in ~/.API.sh"}), 500
             
         # 3. Retrieve Indico Token
         indico_token = get_indico_token()
@@ -468,59 +515,142 @@ def api_meeting_summary(meeting_id):
         if not slide_materials:
             return jsonify({"error": "No presentation slides (PDF/PPTX) found for this meeting."}), 400
             
-        # 6. Download slides and extract text
+        # 6. Download slides and process based on method
         extracted_texts = {}
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
+        pdf_images = []
+        saved_pdf_paths = []
+        
+        # Create a temporary directory in user space to hold downloaded files for Codex or image rendering
+        meeting_slides_dir = Path(f"/tmp/meeting_slides_{meeting_id}")
+        meeting_slides_dir.mkdir(parents=True, exist_ok=True)
+        
+        try:
             for mat in slide_materials:
                 try:
-                    file_path = download_material(mat, tmp_path, indico_token)
-                    text = extract_text(file_path)
-                    if text.strip():
-                        extracted_texts[mat.title] = text.strip()
+                    file_path = download_material(mat, meeting_slides_dir, indico_token)
+                    
+                    if method == "text":
+                        text = extract_text(file_path)
+                        if text.strip():
+                            extracted_texts[mat.title] = text.strip()
+                    elif method == "multimodal":
+                        if file_path.suffix.lower() == ".pdf":
+                            # Vision model input - render pages to base64 images
+                            images = pdf_to_images_base64(file_path, max_pages=12)
+                            pdf_images.extend(images)
+                            saved_pdf_paths.append(file_path)
+                        else:
+                            # Fallback for PPTX to text
+                            text = extract_text(file_path)
+                            if text.strip():
+                                extracted_texts[mat.title] = text.strip()
                 except Exception as e:
                     print(f"Error processing material {mat.title}: {e}")
                     
-        if not extracted_texts:
-            return jsonify({"error": "Failed to extract readable text from any presentation slides."}), 400
+            # Check we have something
+            if method == "text" and not extracted_texts:
+                return jsonify({"error": "Failed to extract readable text from any presentation slides."}), 400
+            if method == "multimodal" and not pdf_images and not extracted_texts:
+                return jsonify({"error": "Failed to extract text or render PDF pages from slides."}), 400
+                
+            # 7. Generate summary using selected agent
+            summary = ""
             
-        # 7. Build LLM prompt
-        prompt = "Below is the extracted text from the presentation slides of a meeting. Please generate a concise, structured executive summary highlighting key results, plots, decisions, and action items discussed in this meeting.\n\n"
-        for title, text in extracted_texts.items():
-            # Limit each presentation content to 30,000 characters
-            prompt += f"### Document: {title}\n{text[:30000]}\n\n"
-            
-        payload = {
-            "model": "lbl/cborg-chat",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are a professional assistant summarizing physics and research meeting slides."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
+            # --- Path A: Direct API via requests ---
+            if agent == "cborg_api":
+                headers = {
+                    "Authorization": f"Bearer {cborg_key}",
+                    "Content-Type": "application/json"
                 }
-            ]
-        }
-        
-        headers = {
-            "Authorization": f"Bearer {cborg_key}",
-            "Content-Type": "application/json"
-        }
-        
-        response = requests.post("https://api.cborg.lbl.gov/v1/chat/completions", json=payload, headers=headers, timeout=180)
-        if response.status_code != 200:
-            return jsonify({"error": f"CBorg API error (HTTP {response.status_code}): {response.text[:300]}"}), 500
+                
+                if method == "text" or not pdf_images:
+                    # Text Completions prompt
+                    prompt = "Below is the extracted text from the presentation slides of a meeting. Please generate a concise, structured executive summary highlighting key results, plots, decisions, and action items discussed in this meeting.\n\n"
+                    for title, text in extracted_texts.items():
+                        prompt += f"### Document: {title}\n{text[:30000]}\n\n"
+                        
+                    payload = {
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": "You are a professional assistant summarizing physics and research meeting slides."},
+                            {"role": "user", "content": prompt}
+                        ]
+                    }
+                else:
+                    # Vision/Multimodal completions prompt
+                    user_content = [
+                        {
+                            "type": "text",
+                            "text": "Below are the presentation slides of a meeting. Please generate a concise, structured executive summary highlighting key results, plots, decisions, and action items discussed in this meeting."
+                        }
+                    ]
+                    # Add images (limit to 4 pages as per model capabilities)
+                    for img in pdf_images[:4]:
+                        user_content.append({
+                            "type": "image_url",
+                            "image_url": {"url": img}
+                        })
+                    # Include fallbacks (e.g. pptx text) if present
+                    if extracted_texts:
+                        pptx_text = "\n\nAdditional extracted text from presentation files:\n"
+                        for title, text in extracted_texts.items():
+                            pptx_text += f"### Document: {title}\n{text[:20000]}\n\n"
+                        user_content.append({"type": "text", "text": pptx_text})
+                        
+                    payload = {
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": "You are a professional assistant summarizing physics and research meeting slides."},
+                            {"role": "user", "content": user_content}
+                        ]
+                    }
+                    
+                response = requests.post("https://api.cborg.lbl.gov/v1/chat/completions", json=payload, headers=headers, timeout=180)
+                if response.status_code != 200:
+                    return jsonify({"error": f"CBorg API error (HTTP {response.status_code}): {response.text[:300]}"}), 500
+                    
+                resp_data = response.json()
+                summary = resp_data["choices"][0]["message"]["content"]
+                
+            # --- Path B & C: Codex Agent subprocess ---
+            else:
+                if agent == "codex_cborg":
+                    cmd_path = "/Users/haichenwang/.gemini/antigravity/bin/codex-cborg"
+                else:
+                    cmd_path = "/Users/haichenwang/.gemini/antigravity/bin/codex"
+                    
+                # Compile Codex instructions & file inputs
+                if method == "text" or not saved_pdf_paths:
+                    text_file_path = meeting_slides_dir / "slides_text.txt"
+                    content = ""
+                    for title, text in extracted_texts.items():
+                        content += f"### Document: {title}\n{text}\n\n"
+                    text_file_path.write_text(content, encoding="utf-8")
+                    prompt = f"Please read the meeting slide text in the file at: '{text_file_path}' and generate a structured executive summary highlighting key results, decisions, and action items."
+                else:
+                    # Multimodal - point Codex directly to the PDF file(s)
+                    pdf_paths_str = ", ".join(f"'{p}'" for p in saved_pdf_paths)
+                    prompt = f"Please read the PDF presentation slides at: {pdf_paths_str} and generate a structured executive summary highlighting key results, decisions, and action items."
+                    
+                cmd = [cmd_path, "-a", "never", "exec", prompt, "-m", model]
+                
+                # Execute Codex agent CLI
+                res = subprocess.run(cmd, input="", capture_output=True, text=True, timeout=180)
+                if res.returncode != 0:
+                    return jsonify({"error": f"Codex agent failed (exit {res.returncode}): {res.stderr}\nOutput: {res.stdout[:500]}"}), 500
+                    
+                summary = extract_codex_response(res.stdout)
+                
+            # 8. Save cache
+            summary_dir.mkdir(parents=True, exist_ok=True)
+            summary_path.write_text(summary, encoding="utf-8")
             
-        resp_data = response.json()
-        summary = resp_data["choices"][0]["message"]["content"]
-        
-        # 8. Save cache
-        summary_dir.mkdir(parents=True, exist_ok=True)
-        summary_path.write_text(summary, encoding="utf-8")
-        
-        return jsonify({"summary": summary})
+            return jsonify({"summary": summary})
+            
+        finally:
+            # Clean up the meeting slides directory
+            shutil.rmtree(meeting_slides_dir, ignore_errors=True)
+            
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

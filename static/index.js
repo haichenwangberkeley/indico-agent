@@ -289,8 +289,37 @@ document.addEventListener('DOMContentLoaded', () => {
                       </svg>
                       Open Event Page
                     </a>
-                    <button class="btn btn-summary-ai" data-meeting-id="${meeting.id}">
-                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  </div>
+
+                  <div class="summary-control-bar" style="display: flex; gap: 0.75rem; flex-wrap: wrap; width: 100%; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed rgba(255,255,255,0.06);">
+                    <div class="setting-item" style="display: flex; flex-direction: column; gap: 0.25rem;">
+                      <label style="font-size: 0.65rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Agent</label>
+                      <select class="summary-agent" data-meeting-id="${meeting.id}" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; color: #fff; font-size: 0.75rem; padding: 0.2rem 0.4rem; outline: none; cursor: pointer;">
+                        <option value="cborg_api">CBorg LLM (Direct API)</option>
+                        <option value="codex_cborg">Codex Agent (CBorg)</option>
+                        <option value="codex_default">Codex Agent (OpenAI)</option>
+                      </select>
+                    </div>
+                    <div class="setting-item" style="display: flex; flex-direction: column; gap: 0.25rem;">
+                      <label style="font-size: 0.65rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Method</label>
+                      <select class="summary-method" data-meeting-id="${meeting.id}" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; color: #fff; font-size: 0.75rem; padding: 0.2rem 0.4rem; outline: none; cursor: pointer;">
+                        <option value="text">Slide Text Extraction</option>
+                        <option value="multimodal">Multimodal (Direct Vision)</option>
+                      </select>
+                    </div>
+                    <div class="setting-item" style="display: flex; flex-direction: column; gap: 0.25rem;">
+                      <label style="font-size: 0.65rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Model</label>
+                      <select class="summary-model" data-meeting-id="${meeting.id}" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; color: #fff; font-size: 0.75rem; padding: 0.2rem 0.4rem; outline: none; min-width: 140px; cursor: pointer;">
+                        <option value="lbl/cborg-chat">lbl/cborg-chat</option>
+                        <option value="lbl/cborg-vision">lbl/cborg-vision</option>
+                        <option value="gpt-4o">gpt-4o</option>
+                        <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                        <option value="claude-3-5-sonnet">claude-3-5-sonnet</option>
+                      </select>
+                    </div>
+                    
+                    <button class="btn btn-summary-ai" data-meeting-id="${meeting.id}" style="margin-left: auto; align-self: flex-end; padding: 0.25rem 0.8rem; font-size: 0.75rem; height: 28px;">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m11.314 11.314l.707.707M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10z"/>
                       </svg>
                       Generate AI Summary
@@ -445,6 +474,37 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
 
+      // Attach change listeners to sync Method and Model selections
+      card.querySelectorAll('.summary-method').forEach(select => {
+        select.addEventListener('change', (e) => {
+          const mId = e.target.getAttribute('data-meeting-id');
+          const modelSelect = card.querySelector(`.summary-model[data-meeting-id="${mId}"]`);
+          if (modelSelect) {
+            if (e.target.value === 'multimodal') {
+              modelSelect.value = 'lbl/cborg-vision';
+            } else {
+              modelSelect.value = 'lbl/cborg-chat';
+            }
+          }
+        });
+      });
+
+      card.querySelectorAll('.summary-agent').forEach(select => {
+        select.addEventListener('change', (e) => {
+          const mId = e.target.getAttribute('data-meeting-id');
+          const modelSelect = card.querySelector(`.summary-model[data-meeting-id="${mId}"]`);
+          const methodSelect = card.querySelector(`.summary-method[data-meeting-id="${mId}"]`);
+          if (modelSelect) {
+            if (e.target.value === 'codex_default') {
+              modelSelect.value = 'gpt-4o';
+              if (methodSelect) methodSelect.value = 'text';
+            } else if (e.target.value === 'codex_cborg') {
+              modelSelect.value = 'lbl/cborg-chat';
+            }
+          }
+        });
+      });
+
       // Attach listener to AI Summary buttons inside this card
       card.querySelectorAll('.btn-summary-ai').forEach(btn => {
         btn.addEventListener('click', async (e) => {
@@ -452,6 +512,15 @@ document.addEventListener('DOMContentLoaded', () => {
           const summarySection = card.querySelector(`.summary-section[data-meeting-id="${meetingId}"]`);
           const summaryContent = summarySection.querySelector('.summary-content-box');
           const summaryDetails = summarySection.querySelector('.summary-details');
+          
+          // Get dropdown settings values
+          const agentSelect = card.querySelector(`.summary-agent[data-meeting-id="${meetingId}"]`);
+          const methodSelect = card.querySelector(`.summary-method[data-meeting-id="${meetingId}"]`);
+          const modelSelect = card.querySelector(`.summary-model[data-meeting-id="${meetingId}"]`);
+          
+          const agent = agentSelect ? agentSelect.value : 'cborg_api';
+          const method = methodSelect ? methodSelect.value : 'text';
+          const model = modelSelect ? modelSelect.value : 'lbl/cborg-chat';
           
           // Helper to adjust parent accordion height
           const updateParentHeight = () => {
@@ -468,7 +537,7 @@ document.addEventListener('DOMContentLoaded', () => {
           }
 
           summarySection.classList.remove('hidden');
-          summaryContent.innerHTML = '<span class="spinner" style="width: 14px; height: 14px; border-width: 2.25px; margin: 0 0.5rem 0 0; display: inline-block; vertical-align: middle;"></span> Downloading slides and generating summary...';
+          summaryContent.innerHTML = '<span class="spinner" style="width: 14px; height: 14px; border-width: 2.25px; margin: 0 0.5rem 0 0; display: inline-block; vertical-align: middle;"></span> Generating summary via ' + agent + '...';
           updateParentHeight();
           
           btn.disabled = true;
@@ -476,7 +545,11 @@ document.addEventListener('DOMContentLoaded', () => {
           btn.innerHTML = 'Generating...';
           
           try {
-            const res = await fetch(`/api/meetings/${meetingId}/summary`, { method: 'POST' });
+            const res = await fetch(`/api/meetings/${meetingId}/summary`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ agent, method, model })
+            });
             const resData = await res.json();
             if (!res.ok) {
               throw new Error(resData.error || 'Failed to generate summary');
